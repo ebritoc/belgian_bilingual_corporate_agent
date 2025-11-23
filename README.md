@@ -1,6 +1,6 @@
 # Belgian Bilingual Corporate Agent
 
-**One-line pitch:**  
+**Experimental free-time project (work in progress)**  
 Multi-agent system analyzing Belgian corporate reports with built-in cross-lingual validation—exploiting Belgium's bilingual publishing requirements to ensure extraction accuracy across French and Dutch.
 
 ---
@@ -170,4 +170,4 @@ python scripts/rag_cli.py query "Quels sont les principaux indicateurs financier
 ---
 
 **Contact:**  
-Project maintained by [Your Name/Team].
+Project maintained by Eduardo Brito.

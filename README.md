@@ -1,6 +1,6 @@
 # Belgian Bilingual Corporate Agent
 
-**Experimental free-time project (work in progress)**  
+**(Very) Experimental Free-time Project (large parts esentially vibe-coded)**  
 Multi-agent system analyzing Belgian corporate reports with built-in cross-lingual validation—exploiting Belgium's bilingual publishing requirements to ensure extraction accuracy across French and Dutch.
 
 ---

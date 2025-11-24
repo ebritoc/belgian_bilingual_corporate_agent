@@ -1,7 +1,8 @@
 import sys
 import os
+# Ensure src is on sys.path for local imports (keeps previous behavior)
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
-from rag.free_banking_rag import FreeBankingRAG
+from agents.rag_agent import RAGAgent
 
 def main():
     print("Multilingual Banking RAG System (CLI)")
@@ -16,7 +17,8 @@ def main():
     parser.add_argument('question', nargs='*', help='Question to ask (for query mode)')
     args = parser.parse_args()
 
-    rag = FreeBankingRAG()
+    # Instantiate RAGAgent with optional config (could be extended with CLI flags)
+    rag = RAGAgent()
     pdf_dir = "data/fetched_reports"
 
     if args.mode == 'index':

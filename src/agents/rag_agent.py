@@ -1,45 +1,60 @@
-"""
-Free Multilingual Banking RAG System
-Key improvements:
-- Better multilingual embeddings (sentence-transformers)
-- Hybrid search (vector + keyword BM25)
-- Better chunk filtering
-- Larger, more semantic chunks
-"""
+"""RAG Agent
 
-import chromadb
-from pypdf import PdfReader
+Lightweight agent that lazy-loads heavy dependencies and exposes a
+minimal public API: index_documents(pdf_dir) and answer_question(question).
+
+This file avoids importing heavy libraries at module import time so tests
+and other agents can import it cheaply.
+"""
+from typing import Optional, List, Dict, Any
 from pathlib import Path
-import re
-import requests
-from collections import Counter
-from sentence_transformers import SentenceTransformer
+import os
 
-class FreeBankingRAG:
-    def __init__(self, ollama_url="http://localhost:11434"):
+
+class RAGAgent:
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """Create the RAGAgent.
+
+        config keys (optional):
+        - 'ollama_url' (default 'http://localhost:11434')
+        - 'model_name' (default 'qwen2.5:7b')
+        - 'chroma_path' (default './banking_db_v2')
+        - 'embedding_model' (default 'paraphrase-multilingual-mpnet-base-v2')
         """
-        Initialize RAG with better multilingual embeddings
-        
-        Install: pip install sentence-transformers chromadb pypdf2 requests
-        Then: ollama pull qwen2.5:7b
-        """
-        self.ollama_url = ollama_url
-        self.model_name = "qwen2.5:7b"
-        
-        # Use better multilingual embeddings
-        print("Loading multilingual embedding model...")
-        self.embedding_model = SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')
-        # Alternative: 'intfloat/multilingual-e5-large' (better but slower)
-        
-        self.chroma_client = chromadb.PersistentClient(path="./banking_db_v2")
-        
-        # Custom embedding function
+        config = config or {}
+        self.ollama_url = config.get('ollama_url', 'http://localhost:11434')
+        self.model_name = config.get('model_name', 'qwen2.5:7b')
+        self.chroma_path = config.get('chroma_path', './banking_db_v2')
+        self.embedding_model_name = config.get('embedding_model', 'paraphrase-multilingual-mpnet-base-v2')
+
+        # Lazy attributes
+        self._embedding_model = None
+        self._chroma_client = None
+        self.collection = None
+
+        # Simple keyword index for hybrid retrieval
+        self.keyword_index: Dict[str, str] = {}
+
+    # ------------------- Lazy initializers -------------------
+    def _ensure_embedding_model(self):
+        if self._embedding_model is None:
+            # Import here to avoid heavy imports at module import time
+            from sentence_transformers import SentenceTransformer
+            print("Loading multilingual embedding model...")
+            self._embedding_model = SentenceTransformer(self.embedding_model_name)
+
+    def _ensure_chroma_client(self):
+        if self._chroma_client is None:
+            import chromadb
+            self._chroma_client = chromadb.PersistentClient(path=str(self.chroma_path))
+
+    def _create_embedding_function(self):
+        # Inner wrapper that conforms to Chroma's EmbeddingFunction interface
         class MultilingualEmbedding:
             def __init__(self, model):
                 self.model = model
 
             def name(self):
-                # Report as 'default' to avoid conflicts with persisted config
                 return "default"
 
             def __call__(self, input):
@@ -55,7 +70,6 @@ class FreeBankingRAG:
                 processed = []
                 for v in embs:
                     try:
-                        # Convert numpy arrays to plain Python floats
                         processed.append([float(x) for x in v.tolist()])
                     except Exception:
                         processed.append([float(x) for x in v])
@@ -63,61 +77,67 @@ class FreeBankingRAG:
                 return processed[0] if single else processed
 
             def embed_documents(self, input):
-                """Chroma expects this method for embedding multiple documents.
-
-                Accepts a list of strings and returns a list of embeddings
-                (list of list of floats).
-                """
-                # Ensure we return list[list[float]]
                 if isinstance(input, str):
                     return [self.__call__(input)]
                 return self.__call__(input)
 
             def embed_query(self, input):
-                """Chroma expects this method for embedding a query.
-
-                Accepts a single string (or a list with a single string) and
-                returns a single embedding (list of floats) or a list of
-                embeddings if multiple queries are provided.
-                """
-                # If a list was passed, forward and return either the single
-                # embedding or the list of embeddings depending on length.
                 if isinstance(input, list):
                     res = self.__call__(input)
                     return res[0] if len(res) == 1 else res
-
-                # Single string -> return one embedding (list[float])
                 return self.__call__(input)
 
-        self.collection = self.chroma_client.get_or_create_collection(
-            name="banking_reports_improved",
-            embedding_function=MultilingualEmbedding(self.embedding_model),
-            metadata={"hnsw:space": "cosine"}
-        )
-        
-        # For keyword search (BM25-like)
-        self.keyword_index = {}  # {doc_id: text}
-    
-    def extract_pdf_content(self, pdf_path, bank, language):
-        """Extract with better filtering"""
+        return MultilingualEmbedding(self._embedding_model)
+
+    def _ensure_collection(self):
+        if self.collection is None:
+            self._ensure_embedding_model()
+            self._ensure_chroma_client()
+            embedding_fn = self._create_embedding_function()
+            # Create or get collection
+            self.collection = self._chroma_client.get_or_create_collection(
+                name="banking_reports_improved",
+                embedding_function=embedding_fn,
+                metadata={"hnsw:space": "cosine"}
+            )
+
+    # ------------------- Utilities / Public -------------------
+    def collection_info(self) -> Dict[str, Any]:
+        """Return diagnostic info about the collection and embedding.
+
+        This is useful to detect DB mismatches before indexing.
+        """
+        info = {
+            'chroma_path': str(Path(self.chroma_path).absolute()),
+            'embedding_model': self.embedding_model_name,
+            'collection_name': 'banking_reports_improved'
+        }
+        try:
+            if self.collection is not None:
+                info['collection_exists'] = True
+        except Exception:
+            info['collection_exists'] = False
+        return info
+
+    # ------------------- Core functionality -------------------
+    def extract_pdf_content(self, pdf_path: Path, bank: str, language: str):
+        # Import pypdf here
+        from pypdf import PdfReader
+
         reader = PdfReader(pdf_path)
         chunks = []
-        
+
         for page_num, page in enumerate(reader.pages):
             text = page.extract_text()
             if not text or not text.strip():
                 continue
-            
-            # Better cleaning
+
             clean_text = self._advanced_clean(text)
             if not clean_text or len(clean_text) < 100:
                 continue
-            
-            # Larger, more semantic chunks
+
             page_chunks = self._semantic_chunk(clean_text, max_size=1000, min_size=200)
-            
             for chunk in page_chunks:
-                # Quality filter
                 if self._is_quality_chunk(chunk):
                     chunks.append({
                         'text': chunk,
@@ -128,115 +148,76 @@ class FreeBankingRAG:
                             'source': pdf_path.name
                         }
                     })
-        
-        print(f"  -> Extracted {len(chunks)} quality chunks")
+
         return chunks
-    
-    def _advanced_clean(self, text):
-        """Better text cleaning"""
+
+    def _advanced_clean(self, text: str) -> str:
+        import re
         lines = text.splitlines()
         cleaned = []
-        
-        # Patterns to skip
-        skip_patterns = [
-            r'^\s*\d+\s*$',  # Just page numbers
-            r'^(TABLE OF CONTENTS|CONTENU|INHOUD|INDEX)',  # TOC headers
-            r'^\s*\.{3,}',  # Dotted lines (TOC)
-            r'^\s*_{3,}',  # Underscores
-            r'^\s*-{3,}',  # Dashes
-            r'^\s*(RAPPORT|ANNUEL|ANNUAL|REPORT|JAARVERSLAG)\s*$',  # Isolated report words
-        ]
-        
+        skip_patterns = [r'^\s*\d+\s*$', r'^(TABLE OF CONTENTS|CONTENU|INHOUD|INDEX)', r'^\s*\.{3,}', r'^\s*_{3,}', r'^\s*-{3,}', r'^\s*(RAPPORT|ANNUEL|ANNUAL|REPORT|JAARVERSLAG)\s*$']
         for line in lines:
             line = line.strip()
             if not line or len(line) < 3:
                 continue
-            
-            # Skip if matches patterns
-            if any(re.match(p, line, re.IGNORECASE) for p in skip_patterns):
+            if any(__import__('re').match(p, line, __import__('re').IGNORECASE) for p in skip_patterns):
                 continue
-            
-            # Skip very short all-caps lines (likely headers)
             if len(line) < 50 and line.isupper() and not any(c.isdigit() for c in line):
                 continue
-            
-            # Skip if mostly numbers/symbols
             alpha_ratio = sum(c.isalpha() for c in line) / len(line) if line else 0
             if alpha_ratio < 0.4:
                 continue
-            
             cleaned.append(line)
-        
         return ' '.join(cleaned)
-    
-    def _semantic_chunk(self, text, max_size=1000, min_size=200):
-        """Create larger, more meaningful chunks"""
-        # Normalize whitespace
+
+    def _semantic_chunk(self, text: str, max_size=1000, min_size=200) -> List[str]:
+        import re
         text = re.sub(r'\s+', ' ', text).strip()
-        
-        # Split on strong boundaries (paragraphs, sentences)
-        # Try to preserve paragraph-like structures
         segments = re.split(r'(?<=[.!?])\s+(?=[A-ZÀ-Ö])|(?:\n\s*){2,}', text)
-        
         chunks = []
         current = ""
-        
         for seg in segments:
             seg = seg.strip()
             if not seg:
                 continue
-            
-            # If adding this segment keeps us under max_size
             if len(current) + len(seg) + 1 < max_size:
                 current += " " + seg if current else seg
             else:
-                # Finalize current chunk if it meets min_size
                 if len(current) >= min_size:
                     chunks.append(current)
                     current = seg
                 else:
-                    # Current is too small, try to reach min_size
                     current += " " + seg if current else seg
                     if len(current) >= min_size:
                         chunks.append(current)
                         current = ""
-        
-        # Don't forget last chunk
         if len(current) >= min_size:
             chunks.append(current)
-        
         return chunks
-    
-    def _is_quality_chunk(self, chunk):
-        """Filter out low-quality chunks"""
-        # Too short
+
+    def _is_quality_chunk(self, chunk: str) -> bool:
+        import re
+        from collections import Counter
         if len(chunk) < 150:
             return False
-        
-        # Too few actual words
         words = re.findall(r'\b[a-zA-ZÀ-ÖØ-öø-ÿ]{3,}\b', chunk)
         if len(words) < 20:
             return False
-        
-        # Dominated by repeated words (like TOC)
         word_counts = Counter(w.lower() for w in words)
         most_common_freq = word_counts.most_common(1)[0][1] if word_counts else 0
-        if most_common_freq > len(words) * 0.3:  # Single word >30% of content
+        if most_common_freq > len(words) * 0.3:
             return False
-        
-        # Check for financial/meaningful content indicators
         financial_terms = r'\b(million|billion|ratio|capital|revenue|profit|loss|assets|equity|risk|performance|résultat|bénéfice|actif|capitaux|risque|winst|verlies|vermogen)\b'
-        if not re.search(financial_terms, chunk, re.IGNORECASE):
-            # If no financial terms, at least should have substantive sentences
+        if not __import__('re').search(financial_terms, chunk, __import__('re').IGNORECASE):
             sentences = re.split(r'[.!?]+', chunk)
             avg_sentence_len = sum(len(s.split()) for s in sentences) / max(len(sentences), 1)
-            if avg_sentence_len < 5:  # Very short sentences suggest headers/TOC
+            if avg_sentence_len < 5:
                 return False
-        
         return True
-    
-    def index_documents(self, pdf_directory):
-        """Index with better embeddings"""
+
+    def index_documents(self, pdf_directory: str):
+        from pathlib import Path
+        pdf_directory = Path(pdf_directory)
         pdf_configs = [
             ('BNP_Paribas_Fortis_FR.pdf', 'BNP Paribas Fortis', 'fr'),
             ('BNP_Paribas_Fortis_NL.pdf', 'BNP Paribas Fortis', 'nl'),
@@ -245,162 +226,126 @@ class FreeBankingRAG:
             ('KBC_Group_NL.pdf', 'KBC Group', 'nl'),
             ('KBC_Group_EN.pdf', 'KBC Group', 'en'),
         ]
-        
+
         all_chunks = []
         for filename, bank, lang in pdf_configs:
-            pdf_path = Path(pdf_directory) / filename
+            pdf_path = pdf_directory / filename
             if pdf_path.exists():
                 print(f"Processing {filename}...")
                 chunks = self.extract_pdf_content(pdf_path, bank, lang)
                 all_chunks.extend(chunks)
             else:
                 print(f"Warning: {filename} not found, skipping...")
-        
+
         if not all_chunks:
             print("No documents to index!")
             return
-        
+
         print(f"\nIndexing {len(all_chunks)} chunks with multilingual embeddings...")
-        
-        # Build keyword index for hybrid search
+
         for i, chunk in enumerate(all_chunks):
             doc_id = f"chunk_{i}"
             self.keyword_index[doc_id] = chunk['text'].lower()
-        
-        # Batch indexing
-        batch_size = 100  # Smaller batches for custom embeddings
+
+        # Ensure collection ready
+        self._ensure_collection()
+
+        batch_size = 100
         for start_idx in range(0, len(all_chunks), batch_size):
             end_idx = min(start_idx + batch_size, len(all_chunks))
             batch = all_chunks[start_idx:end_idx]
-            
             self.collection.add(
                 documents=[c['text'] for c in batch],
                 metadatas=[c['metadata'] for c in batch],
                 ids=[f"chunk_{i}" for i in range(start_idx, end_idx)]
             )
             print(f"  ✓ Indexed chunks {start_idx}-{end_idx-1}")
-        
+
         print(f"✓ Successfully indexed {len(all_chunks)} chunks!")
-    
-    def _keyword_search(self, query, top_k=10):
-        """Simple keyword matching (BM25-like)"""
+
+    def _keyword_search(self, query: str, top_k: int = 10) -> List[str]:
+        import re
         query_terms = set(re.findall(r'\b\w{3,}\b', query.lower()))
-        
         scores = {}
         for doc_id, text in self.keyword_index.items():
-            # Count matching terms
             matches = sum(1 for term in query_terms if term in text)
             if matches > 0:
-                # Simple TF-IDF-like scoring
                 score = matches / len(query_terms)
                 scores[doc_id] = score
-        
-        # Return top-k document IDs
         sorted_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         return [doc_id for doc_id, score in sorted_docs[:top_k]]
-    
-    def hybrid_retrieve(self, query, n_results=8, language_filter=None):
-        """Combine vector and keyword search"""
-        # Vector search
+
+    def hybrid_retrieve(self, query: str, n_results: int = 8, language_filter: Optional[str] = None):
         where_filter = {"language": language_filter} if language_filter else None
-        
+        self._ensure_collection()
+
         vector_results = self.collection.query(
             query_texts=[query],
-            n_results=n_results * 2,  # Get more candidates
+            n_results=n_results * 2,
             where=where_filter,
             include=['documents', 'metadatas', 'distances']
         )
-        
-        # Keyword search
+
         keyword_ids = self._keyword_search(query, top_k=n_results)
-        
-        # Combine and deduplicate
-        vector_ids = set(vector_results['ids'][0]) if vector_results['ids'] else set()
+
+        vector_ids = set(vector_results['ids'][0]) if vector_results.get('ids') else set()
         keyword_id_set = set(keyword_ids)
-        
-        # Prioritize docs that appear in both
-        combined_ids = list(vector_ids & keyword_id_set)  # Intersection first
+
+        combined_ids = list(vector_ids & keyword_id_set)
         combined_ids += [id for id in vector_results['ids'][0] if id not in combined_ids][:n_results - len(combined_ids)]
         combined_ids += [id for id in keyword_ids if id not in combined_ids][:n_results - len(combined_ids)]
-        
-        # Fetch final results
+
         if not combined_ids:
             return vector_results
-        
+
         final_results = self.collection.get(
             ids=combined_ids[:n_results],
             include=['documents', 'metadatas']
         )
-        
-        print(f"[Hybrid Search] Vector: {len(vector_ids)}, Keyword: {len(keyword_id_set)}, Combined: {len(combined_ids)}")
-        
+
         return final_results
-    
-    def query_ollama(self, prompt, system_prompt=None):
-        """Query Ollama LLM"""
+
+    def query_ollama(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+        import requests
         try:
             payload = {
                 "model": self.model_name,
                 "prompt": prompt,
                 "stream": False,
-                "options": {
-                    "temperature": 0.3,  # Lower for more factual responses
-                    "top_p": 0.9
-                }
+                "options": {"temperature": 0.3, "top_p": 0.9}
             }
             if system_prompt:
                 payload["system"] = system_prompt
-            
-            response = requests.post(
-                f"{self.ollama_url}/api/generate",
-                json=payload,
-                timeout=180
-            )
-            
+            response = requests.post(f"{self.ollama_url}/api/generate", json=payload, timeout=180)
             if response.status_code == 200:
-                return response.json()['response']
-            else:
-                return f"Error: Ollama returned status {response.status_code}"
+                return response.json().get('response', '')
+            return f"Error: Ollama returned status {response.status_code}"
         except Exception as e:
             return f"Error: {str(e)}"
-    
-    def answer_question(self, user_question, n_results=8):
-        """Answer with improved retrieval"""
+
+    def answer_question(self, user_question: str, n_results: int = 8):
         print(f"\n{'='*70}")
         print(f"Question: {user_question}")
         print(f"{'='*70}\n")
-        
-        # Detect language
+
         detected_lang = self._detect_language(user_question)
         print(f"Detected language: {detected_lang.upper()}\n")
-        
-        # Hybrid retrieval
+
         print("Performing hybrid search (vector + keyword)...")
         results = self.hybrid_retrieve(user_question, n_results=n_results)
-        
+
         docs = results.get('documents', [])
         metas = results.get('metadatas', [])
-        
+
         if not docs:
             return {"answer": "No relevant information found.", "sources": [], "language": detected_lang}
-        
-        # Show retrieved chunks
-        print(f"\nRetrieved {len(docs)} relevant passages:\n")
-        for i, (doc, meta) in enumerate(zip(docs, metas)):
-            print(f"[{i+1}] {meta['bank']} | Page {meta['page']} | {meta['language'].upper()}")
-            snippet = doc[:200].replace('\n', ' ') + '...'
-            print(f"    {snippet}\n")
-        
-        # Build context
+
         context_blocks = []
         for i, (doc, meta) in enumerate(zip(docs, metas)):
-            context_blocks.append(
-                f"[Source {i+1}: {meta['bank']}, Page {meta['page']}, {meta['language'].upper()}]\n{doc}"
-            )
-        
+            context_blocks.append(f"[Source {i+1}: {meta['bank']}, Page {meta['page']}, {meta['language'].upper()}]\n{doc}")
+
         context = "\n\n---\n\n".join(context_blocks)
-        
-        # Better system prompt
+
         system_prompt = """You are a financial analyst assistant specializing in European banking reports.
 
 Your task:
@@ -411,7 +356,7 @@ Your task:
 - Keep answers concise but complete
 
 Respond in the same language as the question."""
-        
+
         user_prompt = f"""Based on the following excerpts from banking reports, please answer the question.
 
 Context:
@@ -423,24 +368,18 @@ Context:
 Question: {user_question}
 
 Provide a clear, factual answer with citations."""
-        
-        print("Generating answer with Qwen 2.5...")
+
+        print("Generating answer with local LLM...")
         answer = self.query_ollama(user_prompt, system_prompt)
-        
-        return {
-            'answer': answer,
-            'sources': metas,
-            'language': detected_lang,
-            'num_sources': len(docs)
-        }
-    
-    def _detect_language(self, text):
-        """Language detection"""
+
+        return {'answer': answer, 'sources': metas, 'language': detected_lang, 'num_sources': len(docs)}
+
+    def _detect_language(self, text: str) -> str:
         text_lower = text.lower()
+        import re
         fr_count = len(re.findall(r'\b(le|la|les|des|un|une|du|avec|pour|que|qui|dans|sur|est|sont|ont|leur|cette)\b', text_lower))
         nl_count = len(re.findall(r'\b(de|het|een|van|en|met|voor|dat|die|zijn|is|was|op|in|bij|heeft|werd)\b', text_lower))
         en_count = len(re.findall(r'\b(the|is|are|and|with|for|that|this|from|have|was|were|has|been)\b', text_lower))
-        
         max_count = max(fr_count, nl_count, en_count)
         if max_count == 0:
             return 'en'
@@ -450,31 +389,3 @@ Provide a clear, factual answer with citations."""
             return 'nl'
         else:
             return 'en'
-
-
-"""Compatibility shim for legacy imports.
-
-This module preserves the old import path `rag.free_banking_rag.FreeBankingRAG`
-by delegating to `agents.rag_agent.RAGAgent`. It emits a deprecation
-message when used.
-"""
-import warnings
-
-
-def _lazy_agent(*args, **kwargs):
-    # Lazy import to avoid heavy dependencies during module import
-    from agents.rag_agent import RAGAgent
-    return RAGAgent(*args, **kwargs)
-
-
-class FreeBankingRAG:
-    """Backward-compatible adapter exposing the previous API."""
-    def __init__(self, *args, **kwargs):
-        warnings.warn("Importing FreeBankingRAG from src.rag.free_banking_rag is deprecated. Use agents.RAGAgent instead.", DeprecationWarning)
-        self._agent = _lazy_agent(*args, **kwargs)
-
-    def index_documents(self, pdf_dir):
-        return self._agent.index_documents(pdf_dir)
-
-    def answer_question(self, question, n_results=8):
-        return self._agent.answer_question(question, n_results=n_results)

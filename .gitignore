@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Virtual env
+.venv/
+venv/
+ENV/
+env.bak/
+
+# Byte-compiled / logs
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Data, DB and large files (exclude fetched reports and local vector DB)
+data/fetched_reports/
+banking_db/
+*.sqlite3
+
+# Local Chroma DB v2 (keep locally, don't track in git)
+banking_db_v2/
+
+# Pip cache, wheelhouse
+pip-wheel-metadata/
+dist/
+build/
+*.egg-info/

@@ -15,10 +15,22 @@ def main():
     parser = argparse.ArgumentParser(description="RAG CLI for banking reports")
     parser.add_argument('mode', choices=['index', 'query'], help='Mode: index or query')
     parser.add_argument('question', nargs='*', help='Question to ask (for query mode)')
+    parser.add_argument('--ollama-url', dest='ollama_url', default=None, help='Override Ollama base URL (e.g., http://localhost:11434)')
+    parser.add_argument('--model', dest='model', default=None, help='Override model name (e.g., qwen2.5:7b)')
+    parser.add_argument('--timeout', dest='timeout', type=int, default=None, help='Ollama request timeout in seconds')
+    parser.add_argument('--no-llm', dest='no_llm', action='store_true', help='Disable LLM generation; only retrieve sources')
+    parser.add_argument('--n-results', dest='n_results', type=int, default=8, help='Number of passages to retrieve')
     args = parser.parse_args()
 
-    # Instantiate RAGAgent with optional config (could be extended with CLI flags)
-    rag = RAGAgent()
+    # Instantiate RAGAgent with optional config from CLI flags
+    config = {}
+    if args.ollama_url:
+        config['ollama_url'] = args.ollama_url
+    if args.model:
+        config['model_name'] = args.model
+    if args.timeout:
+        config['ollama_timeout'] = args.timeout
+    rag = RAGAgent(config)
     pdf_dir = "data/fetched_reports"
 
     if args.mode == 'index':
@@ -30,7 +42,7 @@ def main():
             print("Please provide a question to ask.")
             return
         question = ' '.join(args.question)
-        result = rag.answer_question(question)
+        result = rag.answer_question(question, n_results=args.n_results, use_llm=(not args.no_llm))
         print("\n" + "="*60)
         print("ANSWER:")
         print("="*60)

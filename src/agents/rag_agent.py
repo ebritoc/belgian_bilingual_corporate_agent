@@ -26,6 +26,7 @@ class RAGAgent:
         self.model_name = config.get('model_name', 'qwen2.5:7b')
         self.chroma_path = config.get('chroma_path', './banking_db_v2')
         self.embedding_model_name = config.get('embedding_model', 'paraphrase-multilingual-mpnet-base-v2')
+        self.ollama_timeout = int(config.get('ollama_timeout', 180))
 
         # Lazy attributes
         self._embedding_model = None
@@ -58,34 +59,30 @@ class RAGAgent:
                 return "default"
 
             def __call__(self, input):
-                single = False
+                # Normalize to list of strings
                 if isinstance(input, str):
-                    input_list = [input]
-                    single = True
+                    inputs = [input]
                 else:
-                    input_list = input
-
-                embs = self.model.encode(input_list, show_progress_bar=False)
-
+                    inputs = list(input)
+                embs = self.model.encode(inputs, show_progress_bar=False)
                 processed = []
                 for v in embs:
                     try:
                         processed.append([float(x) for x in v.tolist()])
                     except Exception:
                         processed.append([float(x) for x in v])
-
-                return processed[0] if single else processed
+                return processed  # list[list[float]]
 
             def embed_documents(self, input):
                 if isinstance(input, str):
-                    return [self.__call__(input)]
-                return self.__call__(input)
+                    input = [input]
+                return self.__call__(input)  # list[list[float]]
 
             def embed_query(self, input):
-                if isinstance(input, list):
-                    res = self.__call__(input)
-                    return res[0] if len(res) == 1 else res
-                return self.__call__(input)
+                # Chroma expects list[list[float]] even for single query
+                if isinstance(input, str):
+                    input = [input]
+                return self.__call__(input)  # list[list[float]]
 
         return MultilingualEmbedding(self._embedding_model)
 
@@ -316,14 +313,14 @@ class RAGAgent:
             }
             if system_prompt:
                 payload["system"] = system_prompt
-            response = requests.post(f"{self.ollama_url}/api/generate", json=payload, timeout=180)
+            response = requests.post(f"{self.ollama_url}/api/generate", json=payload, timeout=self.ollama_timeout)
             if response.status_code == 200:
                 return response.json().get('response', '')
             return f"Error: Ollama returned status {response.status_code}"
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def answer_question(self, user_question: str, n_results: int = 8):
+    def answer_question(self, user_question: str, n_results: int = 8, use_llm: bool = True):
         print(f"\n{'='*70}")
         print(f"Question: {user_question}")
         print(f"{'='*70}\n")
@@ -369,8 +366,12 @@ Question: {user_question}
 
 Provide a clear, factual answer with citations."""
 
-        print("Generating answer with local LLM...")
-        answer = self.query_ollama(user_prompt, system_prompt)
+        if use_llm:
+            print("Generating answer with local LLM...")
+            answer = self.query_ollama(user_prompt, system_prompt)
+        else:
+            print("LLM disabled; returning sources only.")
+            answer = "LLM disabled. Review sources below."
 
         return {'answer': answer, 'sources': metas, 'language': detected_lang, 'num_sources': len(docs)}
 

@@ -1,0 +1,14 @@
+{
+  "fr": [
+    {"bank": "BNP Paribas Fortis", "page": 1, "text": "Le résultat net de l'exercice 2024 est de 1 234 millions EUR."},
+    {"bank": "KBC Group", "page": 2, "text": "Le résultat annuel consolidé atteint 2 100 millions EUR."}
+  ],
+  "nl": [
+    {"bank": "BNP Paribas Fortis", "page": 1, "text": "De nettowinst over 2024 bedraagt 1.234 miljoen EUR."},
+    {"bank": "KBC Group", "page": 2, "text": "Het geconsolideerde jaarresultaat bedraagt 2.100 miljoen EUR."}
+  ],
+  "en": [
+    {"bank": "BNP Paribas Fortis", "page": 1, "text": "The net profit for fiscal year 2024 is 1,234 million EUR."},
+    {"bank": "KBC Group", "page": 2, "text": "The consolidated annual result amounts to 2,100 million EUR."}
+  ]
+}

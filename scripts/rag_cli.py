@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--timeout', dest='timeout', type=int, default=None, help='Ollama request timeout in seconds')
     parser.add_argument('--no-llm', dest='no_llm', action='store_true', help='Disable LLM generation; only retrieve sources')
     parser.add_argument('--n-results', dest='n_results', type=int, default=8, help='Number of passages to retrieve')
+    parser.add_argument('--bilingual-check', dest='bilingual_check', action='store_true', help='Enable cross-language consistency check')
     args = parser.parse_args()
 
     # Instantiate RAGAgent with optional config from CLI flags
@@ -42,13 +43,16 @@ def main():
             print("Please provide a question to ask.")
             return
         question = ' '.join(args.question)
-        result = rag.answer_question(question, n_results=args.n_results, use_llm=(not args.no_llm))
+        result = rag.answer_question(question, n_results=args.n_results, use_llm=(not args.no_llm), bilingual_check=args.bilingual_check)
         print("\n" + "="*60)
         print("ANSWER:")
         print("="*60)
         print(result['answer'])
         print("\n" + "="*60)
         print(f"Sources: {result['num_sources']} passages from reports")
+        if 'consistency' in result:
+            c = result['consistency']
+            print(f"Consistency: {c.get('status')} (confidence {c.get('confidence')}) - {c.get('notes')}")
         print("="*60)
 
 if __name__ == "__main__":

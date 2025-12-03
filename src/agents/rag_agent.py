@@ -27,6 +27,7 @@ class RAGAgent:
         self.chroma_path = config.get('chroma_path', './banking_db_v2')
         self.embedding_model_name = config.get('embedding_model', 'paraphrase-multilingual-mpnet-base-v2')
         self.ollama_timeout = int(config.get('ollama_timeout', 180))
+        self.enable_bilingual_check = bool(config.get('enable_bilingual_check', False))
 
         # Lazy attributes
         self._embedding_model = None
@@ -320,7 +321,7 @@ class RAGAgent:
         except Exception as e:
             return f"Error: {str(e)}"
 
-    def answer_question(self, user_question: str, n_results: int = 8, use_llm: bool = True):
+    def answer_question(self, user_question: str, n_results: int = 8, use_llm: bool = True, bilingual_check: Optional[bool] = None):
         print(f"\n{'='*70}")
         print(f"Question: {user_question}")
         print(f"{'='*70}\n")
@@ -329,7 +330,16 @@ class RAGAgent:
         print(f"Detected language: {detected_lang.upper()}\n")
 
         print("Performing hybrid search (vector + keyword)...")
-        results = self.hybrid_retrieve(user_question, n_results=n_results)
+        if bilingual_check is None:
+            bilingual_check = self.enable_bilingual_check
+        if bilingual_check:
+            exp = self.detect_and_expand_query(user_question)
+            multi = self.multi_retrieve(exp['variants'], n_per_lang=max(2, n_results//3))
+            results = multi['merged']
+            consistency = self.compare_across_languages(multi['buckets'])
+        else:
+            results = self.hybrid_retrieve(user_question, n_results=n_results)
+            consistency = {'status':'skip','confidence':0.0,'notes':'Bilingual check disabled'}
 
         docs = results.get('documents', [])
         metas = results.get('metadatas', [])
@@ -352,7 +362,14 @@ Your task:
 - Provide specific numbers and facts when available
 - Keep answers concise but complete
 
-Respond in the same language as the question."""
+Respond in the same language as the question.
+
+If there is a cross-language consistency warning, mention it briefly at the end.
+"""
+
+        warning = ""
+        if consistency.get('status') == 'discrepancy':
+            warning = f"\n\nNote: Cross-language consistency check flagged a potential discrepancy ({consistency.get('notes')})."
 
         user_prompt = f"""Based on the following excerpts from banking reports, please answer the question.
 
@@ -364,7 +381,7 @@ Context:
 
 Question: {user_question}
 
-Provide a clear, factual answer with citations."""
+Provide a clear, factual answer with citations.{warning}"""
 
         if use_llm:
             print("Generating answer with local LLM...")
@@ -372,8 +389,84 @@ Provide a clear, factual answer with citations."""
         else:
             print("LLM disabled; returning sources only.")
             answer = "LLM disabled. Review sources below."
+        return {'answer': answer, 'sources': metas, 'language': detected_lang, 'num_sources': len(docs), 'consistency': consistency}
 
-        return {'answer': answer, 'sources': metas, 'language': detected_lang, 'num_sources': len(docs)}
+    # ------------------- Bilingual Consistency -------------------
+    def detect_and_expand_query(self, text: str) -> Dict[str, Any]:
+        """Detect language and create FR/NL/EN variants for cross-language retrieval."""
+        detected = self._detect_language(text)
+        def translate_tiny(q: str, src: str, target: str) -> str:
+            ql = q.lower()
+            mappings = {
+                ('fr','nl'): [ ('résultat annuel','jaarresultaat'), ('résultat net','nettowinst') ],
+                ('nl','fr'): [ ('jaarresultaat','résultat annuel'), ('nettowinst','résultat net') ],
+                ('en','fr'): [ ('annual result','résultat annuel'), ('net profit','résultat net') ],
+                ('en','nl'): [ ('annual result','jaarresultaat'), ('net profit','nettowinst') ],
+            }
+            text_out = q
+            for a,b in mappings.get((src,target), []):
+                if a in ql:
+                    text_out = text_out.lower().replace(a, b)
+            return text_out
+        variants: List[Dict[str,str]] = []
+        if detected == 'fr':
+            variants = [ {'lang':'fr','text':text}, {'lang':'nl','text':translate_tiny(text,'fr','nl')}, {'lang':'en','text':translate_tiny(text,'fr','en')} ]
+        elif detected == 'nl':
+            variants = [ {'lang':'nl','text':text}, {'lang':'fr','text':translate_tiny(text,'nl','fr')}, {'lang':'en','text':translate_tiny(text,'nl','en')} ]
+        else:
+            variants = [ {'lang':'en','text':text}, {'lang':'fr','text':translate_tiny(text,'en','fr')}, {'lang':'nl','text':translate_tiny(text,'en','nl')} ]
+        return {'detected': detected, 'variants': variants}
+
+    def multi_retrieve(self, variants: List[Dict[str,str]], n_per_lang: int = 4):
+        buckets: Dict[str, Any] = {}
+        merged_docs: List[str] = []
+        merged_metas: List[Dict[str,Any]] = []
+        seen: set = set()
+        for v in variants:
+            lang = v['lang']
+            q = v['text']
+            res = self.hybrid_retrieve(q, n_results=n_per_lang, language_filter=lang)
+            docs = res.get('documents', [])
+            metas = res.get('metadatas', [])
+            buckets[lang] = {'documents': docs, 'metadatas': metas}
+            # Normalize and merge by source+page
+            for i, (doc, meta) in enumerate(zip(docs, metas)):
+                sid = f"{meta.get('source','')}:{meta.get('page','')}:{lang}"
+                if sid in seen:
+                    continue
+                seen.add(sid)
+                merged_docs.append(doc)
+                merged_metas.append(meta)
+        return {'merged': {'documents': merged_docs, 'metadatas': merged_metas}, 'buckets': buckets}
+
+    def compare_across_languages(self, buckets: Dict[str,Any]) -> Dict[str, Any]:
+        import re
+        def extract_numbers(t: str) -> List[str]:
+            return re.findall(r"\b\d+[\d.,]*\b", t)
+        nums: Dict[str,set] = {}
+        for lang, data in buckets.items():
+            docs = data.get('documents', [])
+            flat: List[str] = []
+            for d in docs:
+                if isinstance(d, list):
+                    flat.extend(d)
+                else:
+                    flat.append(d)
+            s = set()
+            for d in flat[:3]:
+                for n in extract_numbers(d):
+                    s.add(n)
+            nums[lang] = s
+        if len(nums) < 2:
+            return {'status':'ok','confidence':0.5,'notes':'Insufficient language coverage'}
+        sets = list(nums.values())
+        common = set.intersection(*sets) if sets else set()
+        if common:
+            return {'status':'ok','confidence':0.8,'notes':'Numeric overlap across languages'}
+        any_nums = any(len(s)>0 for s in sets)
+        if any_nums:
+            return {'status':'discrepancy','confidence':0.7,'notes':'Different numeric figures across languages'}
+        return {'status':'ok','confidence':0.6,'notes':'No numeric figures detected'}
 
     def _detect_language(self, text: str) -> str:
         text_lower = text.lower()

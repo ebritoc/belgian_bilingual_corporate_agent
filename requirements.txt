@@ -1,6 +1,13 @@
-pytest
-chromadb
-sentence-transformers
-pypdf
-requests
-tqdm
+# Core RAG dependencies
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+pypdf>=3.0.0
+langdetect>=1.0.9
+requests>=2.28.0
+
+# Testing
+pytest>=7.0.0
+pytest-timeout>=2.1.0
+
+# Optional (progress bars, nicer output)
+tqdm>=4.65.0

@@ -1,29 +1,45 @@
+"""CLI for the Belgian Bilingual Corporate RAG System."""
 import sys
 import os
-# Ensure src is on sys.path for local imports (keeps previous behavior)
+import argparse
+
+# Ensure src is on sys.path for local imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
-from agents.rag_agent import RAGAgent
+
+from rag_service import RAGService
+
 
 def main():
-    print("Multilingual Banking RAG System (CLI)")
-    print("=" * 60)
-    print("1. To index PDFs, run: python scripts/rag_cli.py index")
-    print("2. To ask a question, run: python scripts/rag_cli.py query <your question>")
-    print("=" * 60)
+    print("Belgian Bilingual Corporate RAG System")
+    print("=" * 70)
+    print("Commands:")
+    print("  python scripts/rag_cli.py index")
+    print("  python scripts/rag_cli.py query <your question>")
+    print("=" * 70)
 
-    import argparse
-    parser = argparse.ArgumentParser(description="RAG CLI for banking reports")
-    parser.add_argument('mode', choices=['index', 'query'], help='Mode: index or query')
+    parser = argparse.ArgumentParser(description="RAG CLI for Belgian banking reports")
+    parser.add_argument('mode', choices=['index', 'query', 'info'], help='Mode: index, query, or info')
     parser.add_argument('question', nargs='*', help='Question to ask (for query mode)')
-    parser.add_argument('--ollama-url', dest='ollama_url', default=None, help='Override Ollama base URL (e.g., http://localhost:11434)')
-    parser.add_argument('--model', dest='model', default=None, help='Override model name (e.g., qwen2.5:7b)')
-    parser.add_argument('--timeout', dest='timeout', type=int, default=None, help='Ollama request timeout in seconds')
-    parser.add_argument('--no-llm', dest='no_llm', action='store_true', help='Disable LLM generation; only retrieve sources')
-    parser.add_argument('--n-results', dest='n_results', type=int, default=8, help='Number of passages to retrieve')
-    parser.add_argument('--bilingual-check', dest='bilingual_check', action='store_true', help='Enable cross-language consistency check')
+
+    # Configuration options
+    parser.add_argument('--ollama-url', dest='ollama_url', default=None,
+                        help='Ollama API endpoint (default: http://localhost:11434)')
+    parser.add_argument('--model', dest='model', default=None,
+                        help='Ollama model name (default: qwen2.5:7b)')
+    parser.add_argument('--timeout', dest='timeout', type=int, default=None,
+                        help='Ollama request timeout in seconds (default: 180)')
+
+    # Query options
+    parser.add_argument('--no-llm', dest='no_llm', action='store_true',
+                        help='Disable LLM generation; return sources only')
+    parser.add_argument('--n-results', dest='n_results', type=int, default=5,
+                        help='Number of passages to retrieve (default: 5)')
+    parser.add_argument('--bilingual-check', dest='bilingual_check', action='store_true',
+                        help='Enable bilingual consistency checking (requires bilingual_validator)')
+
     args = parser.parse_args()
 
-    # Instantiate RAGAgent with optional config from CLI flags
+    # Build configuration
     config = {}
     if args.ollama_url:
         config['ollama_url'] = args.ollama_url
@@ -31,29 +47,76 @@ def main():
         config['model_name'] = args.model
     if args.timeout:
         config['ollama_timeout'] = args.timeout
-    rag = RAGAgent(config)
+
+    # Initialize RAG service
+    rag = RAGService(config)
     pdf_dir = "data/fetched_reports"
 
+    # Execute command
     if args.mode == 'index':
-        print("\n[INDEXING] Processing PDFs...")
-        rag.index_documents(pdf_dir)
-        print("\n[INDEXING] Complete!\n")
+        print("\n[INDEXING] Processing PDFs from:", pdf_dir)
+        try:
+            rag.index_documents(pdf_dir)
+            print("\n[SUCCESS] Indexing complete!\n")
+        except Exception as e:
+            print(f"\n[ERROR] Error during indexing: {e}\n")
+            sys.exit(1)
+
+    elif args.mode == 'info':
+        print("\n[INFO] Collection information:")
+        try:
+            info = rag.collection_info()
+            print(f"  Collection name: {info['name']}")
+            print(f"  Total chunks: {info['count']}")
+            print(f"  Storage path: {info['path']}")
+        except Exception as e:
+            print(f"\n[ERROR] Error getting collection info: {e}\n")
+            sys.exit(1)
+
     elif args.mode == 'query':
         if not args.question:
-            print("Please provide a question to ask.")
-            return
+            print("\n[ERROR] Please provide a question to ask.")
+            print("Example: python scripts/rag_cli.py query \"What is KBC's capital ratio?\"")
+            sys.exit(1)
+
         question = ' '.join(args.question)
-        result = rag.answer_question(question, n_results=args.n_results, use_llm=(not args.no_llm), bilingual_check=args.bilingual_check)
-        print("\n" + "="*60)
-        print("ANSWER:")
-        print("="*60)
-        print(result['answer'])
-        print("\n" + "="*60)
-        print(f"Sources: {result['num_sources']} passages from reports")
-        if 'consistency' in result:
-            c = result['consistency']
-            print(f"Consistency: {c.get('status')} (confidence {c.get('confidence')}) - {c.get('notes')}")
-        print("="*60)
+
+        try:
+            result = rag.answer_question(
+                question,
+                n_results=args.n_results,
+                use_llm=(not args.no_llm),
+                enable_bilingual=args.bilingual_check
+            )
+
+            # Display results
+            print("\n" + "="*70)
+            print("ANSWER:")
+            print("="*70)
+            print(result['answer'])
+            print("\n" + "="*70)
+            print(f"Retrieved {result['num_sources']} source passages")
+
+            # Show bilingual information if available
+            if 'language' in result:
+                print(f"Detected language: {result['language'].upper()}")
+
+            if 'consistency' in result:
+                c = result['consistency']
+                print(f"Consistency: {c['status']} (confidence: {c['confidence']:.2f}) - {c['notes']}")
+
+            # Show source details
+            if result['sources']:
+                print("\nSources:")
+                for i, src in enumerate(result['sources'], 1):
+                    print(f"  {i}. {src['bank']} (Page {src['page']}, {src['language'].upper()})")
+
+            print("="*70)
+
+        except Exception as e:
+            print(f"\n[ERROR] Error during query: {e}\n")
+            sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

@@ -104,6 +104,7 @@ belgian_bilingual_corporate_agent/
 │   ├── rag_cli.py                  # Command-line interface
 │   └── fetch_and_save_reports.py   # Download PDFs
 ├── tests/
+│   ├── eval_benchmark.json         # Bilingual evaluation benchmark (20 facts)
 │   └── integration/
 │       ├── test_end_to_end.py      # Integration tests
 │       └── test_cases.py           # Real Q&A pairs
@@ -179,6 +180,36 @@ Based on KBC Group and BNP Paribas Fortis 2024 annual reports:
 - LLM generation working
 - Bilingual consistency validation working
 - Source attribution accurate
+
+### Bilingual Evaluation Benchmark
+
+The file `tests/eval_benchmark.json` contains 20 atomic facts extracted from the annual reports, each with a bilingual question pair (French + Dutch) and a verified ground-truth answer. This benchmark is designed for systematic evaluation of the RAG system's accuracy and cross-language retrieval quality.
+
+**Coverage:**
+- **12 KBC Group** and **8 BNP Paribas Fortis** facts
+- **8 categories**: capital ratios, profitability, balance sheet, workforce, fee income, digital, dividends, liquidity
+- Questions use **Belgian corporate language** nuances (e.g. FR: "exercice", "effectifs", "fonds propres"; NL: "boekjaar", "personeelsbestand", "eigen vermogen")
+
+**Each fact contains:**
+- `question_fr` / `question_nl`: Natural language questions in French and Dutch
+- `ground_truth`: The verified answer (specific number, percentage, or amount)
+- `source_bank`, `source_page`, `source_language`: Exact provenance in the PDF
+- `category` and `notes`: Classification and additional context
+
+**Example:**
+```json
+{
+  "id": 1,
+  "question_fr": "Quel est le ratio Common Equity Tier 1 transitionnel du Groupe KBC fin 2024 ?",
+  "question_nl": "Wat is de transitionele Common Equity Tier 1-ratio van KBC Groep eind 2024?",
+  "ground_truth": "13,9%",
+  "source_bank": "KBC Group",
+  "source_page": 101,
+  "category": "capital_ratio"
+}
+```
+
+This benchmark can be used to measure retrieval recall, answer accuracy, and bilingual consistency across model or configuration changes.
 
 ## Data Sources
 

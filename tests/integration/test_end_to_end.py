@@ -3,7 +3,7 @@ End-to-end integration tests for RAG system.
 
 These tests use real Ollama LLM calls and require:
 - Ollama running at http://localhost:11434
-- Documents indexed in ChromaDB (run: python scripts/rag_cli.py index)
+- Documents indexed (run: python scripts/index_corpus.py)
 - qwen2.5:7b model available
 """
 import pytest
@@ -32,7 +32,7 @@ def check_ollama():
 @pytest.fixture(scope="module")
 def rag_service(check_ollama):
     """
-    Initialize RAG service with real ChromaDB and Ollama.
+    Initialize RAG service with ColBERT index and Ollama.
 
     This fixture is module-scoped to avoid reinitializing for each test.
     """
@@ -42,7 +42,7 @@ def rag_service(check_ollama):
     info = service.collection_info()
     if info['count'] == 0:
         pytest.fail(
-            "ChromaDB collection is empty. Please run: python scripts/rag_cli.py index"
+            "Index is empty. Please run: python scripts/index_corpus.py"
         )
 
     print(f"\n[OK] RAG service initialized with {info['count']} indexed chunks")
@@ -215,11 +215,11 @@ class TestSetup:
         has_qwen = any('qwen2.5' in name for name in model_names)
         assert has_qwen, "qwen2.5:7b model not found in Ollama"
 
-    def test_chromadb_has_data(self, rag_service):
-        """Verify ChromaDB has indexed documents."""
+    def test_index_has_data(self, rag_service):
+        """Verify ColBERT index has indexed documents."""
         info = rag_service.collection_info()
         assert info['count'] > 1000, f"Too few documents indexed: {info['count']}"
-        print(f"\n[OK] ChromaDB has {info['count']} indexed chunks")
+        print(f"\n[OK] Index has {info['count']} indexed chunks")
 
 
 if __name__ == "__main__":

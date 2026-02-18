@@ -5,8 +5,12 @@ Handles language detection, query expansion, and cross-language consistency chec
 for French, Dutch, and English documents.
 """
 import re
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, TYPE_CHECKING
 import langdetect
+
+if TYPE_CHECKING:
+    from retriever import RetrievedPassage
+    from consistency import ConsistencyScorer, ConsistencyResult
 
 
 class BilingualValidator:
@@ -240,3 +244,84 @@ class BilingualValidator:
                 normalized.add(num)  # Keep original format
 
         return normalized
+
+    def check_token_alignment_consistency(
+        self,
+        passages_fr: List["RetrievedPassage"],
+        passages_nl: List["RetrievedPassage"],
+        threshold: float = 0.5,
+    ) -> Dict[str, Any]:
+        """
+        Check consistency using token-level alignment via MaxSimE.
+
+        This is a deeper consistency check that compares how FR and NL queries
+        align to the same document at the token level. Requires ColBERT
+        retriever with embeddings.
+
+        Args:
+            passages_fr: Passages retrieved with FR query (must have embeddings)
+            passages_nl: Passages retrieved with NL query (must have embeddings)
+            threshold: Consistency score threshold for flagging
+
+        Returns:
+            Dict with:
+                - status: 'ok', 'warning', or 'error'
+                - confidence: Float 0-1
+                - notes: Explanation string
+                - flagged_pairs: List of flagged passage pairs
+                - results: List of ConsistencyResult objects (if available)
+        """
+        # Check if embeddings are available
+        has_embeddings_fr = any(p.query_embeddings is not None for p in passages_fr)
+        has_embeddings_nl = any(p.query_embeddings is not None for p in passages_nl)
+
+        if not has_embeddings_fr or not has_embeddings_nl:
+            return {
+                'status': 'ok',
+                'confidence': 0.5,
+                'notes': 'Token alignment check requires ColBERT retriever with embeddings',
+                'flagged_pairs': [],
+                'results': [],
+            }
+
+        try:
+            from consistency import ConsistencyScorer
+        except ImportError:
+            return {
+                'status': 'ok',
+                'confidence': 0.5,
+                'notes': 'ConsistencyScorer not available (MaxSimE not installed)',
+                'flagged_pairs': [],
+                'results': [],
+            }
+
+        scorer = ConsistencyScorer(threshold=threshold)
+        results = scorer.score_passages(passages_fr, passages_nl)
+
+        if not results:
+            return {
+                'status': 'ok',
+                'confidence': 0.6,
+                'notes': 'No matching passage pairs found across languages',
+                'flagged_pairs': [],
+                'results': [],
+            }
+
+        # Analyze results
+        flagged_pairs = [(fr_idx, nl_idx, r) for fr_idx, nl_idx, r in results if r.flagged]
+        avg_score = sum(r.score for _, _, r in results) / len(results)
+
+        if flagged_pairs:
+            status = 'warning' if len(flagged_pairs) < len(results) else 'error'
+            notes = f'{len(flagged_pairs)}/{len(results)} passage pairs flagged for inconsistency'
+        else:
+            status = 'ok'
+            notes = f'All {len(results)} passage pairs show consistent token alignment'
+
+        return {
+            'status': status,
+            'confidence': avg_score,
+            'notes': notes,
+            'flagged_pairs': flagged_pairs,
+            'results': [r for _, _, r in results],
+        }

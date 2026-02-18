@@ -78,7 +78,14 @@ def simple_chunk(text: str, max_size: int = 1000, overlap: int = 100) -> List[st
     return chunks
 
 
-def chunk_pdf(pdf_path: Path, bank: str, language: str, max_chunk_size: int = 1000) -> List[Dict]:
+def chunk_pdf(
+    pdf_path: Path,
+    bank: str,
+    language: str,
+    chunk_size: int = 1000,
+    overlap: int = 100,
+    max_chunk_size: int = None  # deprecated, use chunk_size
+) -> List[Dict]:
     """
     Extract and chunk a PDF file.
 
@@ -86,11 +93,17 @@ def chunk_pdf(pdf_path: Path, bank: str, language: str, max_chunk_size: int = 10
         pdf_path: Path to PDF file
         bank: Bank name (e.g., "BNP Paribas Fortis", "KBC Group")
         language: Language code ('fr', 'nl', 'en')
-        max_chunk_size: Maximum chunk size in characters
+        chunk_size: Maximum chunk size in characters (default: 1000)
+        overlap: Overlap between chunks in characters (default: 100)
+        max_chunk_size: Deprecated, use chunk_size instead
 
     Returns:
         List of dicts with 'text' and 'metadata' keys
     """
+    # Handle deprecated parameter
+    if max_chunk_size is not None:
+        chunk_size = max_chunk_size
+
     pages = extract_text_from_pdf(pdf_path)
     all_chunks = []
 
@@ -99,7 +112,7 @@ def chunk_pdf(pdf_path: Path, bank: str, language: str, max_chunk_size: int = 10
         page_num = page_data['page_num']
 
         # Chunk the page text
-        chunks = simple_chunk(text, max_size=max_chunk_size)
+        chunks = simple_chunk(text, max_size=chunk_size, overlap=overlap)
 
         for chunk in chunks:
             all_chunks.append({

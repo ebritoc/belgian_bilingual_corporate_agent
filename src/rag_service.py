@@ -3,86 +3,49 @@ Simplified RAG Service for Belgian Banking Reports.
 
 Single-file implementation combining document indexing, retrieval, and generation.
 """
-import json
 import requests
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-import chromadb
-from sentence_transformers import SentenceTransformer
+from retriever import Retriever, RetrievedPassage, create_retriever
 from bilingual_validator import BilingualValidator
 
 
 class RAGService:
     """Main RAG service for indexing PDFs and answering questions."""
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        retriever: Optional[Retriever] = None
+    ):
         """
         Initialize RAG Service.
 
         Args:
             config: Optional configuration dict with keys:
+                - retriever_type: 'chroma' or 'colbert' (default: 'chroma')
                 - chroma_path: Path to ChromaDB persistent storage (default: './banking_db_v2')
                 - embedding_model: SentenceTransformer model name (default: 'paraphrase-multilingual-mpnet-base-v2')
                 - ollama_url: Ollama API endpoint (default: 'http://localhost:11434')
                 - model_name: Ollama model name (default: 'qwen2.5:7b')
                 - ollama_timeout: Request timeout in seconds (default: 180)
+            retriever: Optional pre-configured Retriever instance. If not provided,
+                       one will be created based on config.
         """
         self.config = config or {}
-        self.chroma_path = self.config.get('chroma_path', './banking_db_v2')
-        self.embedding_model_name = self.config.get('embedding_model', 'paraphrase-multilingual-mpnet-base-v2')
         self.ollama_url = self.config.get('ollama_url', 'http://localhost:11434')
         self.model_name = self.config.get('model_name', 'qwen2.5:7b')
         self.ollama_timeout = int(self.config.get('ollama_timeout', 180))
 
-        # Lazy initialization
-        self._embedding_model = None
-        self._chroma_client = None
-        self._collection = None
+        # Use provided retriever or create one lazily
+        self._retriever = retriever
+        self._retriever_config = config
         self._bilingual_validator = None
 
     def _ensure_initialized(self):
-        """Initialize embedding model and ChromaDB client if not already done."""
-        if self._embedding_model is None:
-            print(f"Loading embedding model: {self.embedding_model_name}...")
-            self._embedding_model = SentenceTransformer(self.embedding_model_name)
-
-        if self._chroma_client is None:
-            print(f"Connecting to ChromaDB at: {self.chroma_path}")
-            self._chroma_client = chromadb.PersistentClient(path=str(self.chroma_path))
-
-        if self._collection is None:
-            # Create embedding function wrapper for ChromaDB
-            embedding_func = self._create_embedding_function()
-            self._collection = self._chroma_client.get_or_create_collection(
-                name="banking_reports",
-                embedding_function=embedding_func,
-                metadata={"hnsw:space": "cosine"}
-            )
-
-    def _create_embedding_function(self):
-        """Create ChromaDB-compatible embedding function."""
-        class EmbeddingFunction:
-            def __init__(self, model):
-                self.model = model
-
-            def name(self):
-                return "sentence-transformer"
-
-            def __call__(self, input):
-                if isinstance(input, str):
-                    input = [input]
-                embeddings = self.model.encode(list(input), show_progress_bar=False)
-                return [[float(x) for x in emb] for emb in embeddings]
-
-            def embed_documents(self, texts):
-                """Embed a list of documents."""
-                return self(texts)
-
-            def embed_query(self, text):
-                """Embed a single query."""
-                return self([text])[0]
-
-        return EmbeddingFunction(self._embedding_model)
+        """Initialize retriever if not already done."""
+        if self._retriever is None:
+            self._retriever = create_retriever(self._retriever_config)
 
     def index_documents(self, pdf_directory: str):
         """
@@ -129,23 +92,20 @@ class RAGService:
             print(f"  Extracted {len(chunks)} chunks")
             all_chunks.extend(chunks)
 
-        # Index in ChromaDB
+        # Prepare data for retriever
+        texts = [c['text'] for c in all_chunks]
+        metadatas = [c['metadata'] for c in all_chunks]
+        chunk_ids = [f"chunk_{i}" for i in range(len(all_chunks))]
+
         print(f"\nIndexing {len(all_chunks)} total chunks...")
-        batch_size = 100
-        for start in range(0, len(all_chunks), batch_size):
-            end = min(start + batch_size, len(all_chunks))
-            batch = all_chunks[start:end]
+        self._retriever.index_documents(texts, chunk_ids, metadatas)
 
-            self._collection.add(
-                documents=[c['text'] for c in batch],
-                metadatas=[c['metadata'] for c in batch],
-                ids=[f"chunk_{i}" for i in range(start, end)]
-            )
-            print(f"  [OK] Indexed chunks {start}-{end-1}")
-
-        print(f"\n[SUCCESS] Indexing complete! Total chunks: {len(all_chunks)}")
-
-    def retrieve(self, query: str, n_results: int = 5, language_filter: Optional[str] = None) -> Dict[str, Any]:
+    def retrieve(
+        self,
+        query: str,
+        n_results: int = 5,
+        language_filter: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Retrieve relevant document chunks for a query.
 
@@ -155,27 +115,18 @@ class RAGService:
             language_filter: Optional language code to filter by ('fr', 'nl', 'en')
 
         Returns:
-            Dict with 'documents', 'metadatas', 'distances' keys
+            Dict with 'documents', 'metadatas', 'distances', and 'passages' keys
         """
         self._ensure_initialized()
 
-        where = {"language": language_filter} if language_filter else None
+        passages = self._retriever.retrieve(query, n_results, language_filter)
 
-        # Manually embed the query to avoid ChromaDB embedding function issues
-        query_embedding = self._embedding_model.encode([query], show_progress_bar=False)[0]
-        query_embedding = [float(x) for x in query_embedding]
-
-        results = self._collection.query(
-            query_embeddings=[query_embedding],
-            n_results=n_results,
-            where=where,
-            include=['documents', 'metadatas', 'distances']
-        )
-
+        # Convert to legacy dict format for backward compatibility
         return {
-            'documents': results['documents'][0] if results['documents'] else [],
-            'metadatas': results['metadatas'][0] if results['metadatas'] else [],
-            'distances': results['distances'][0] if results['distances'] else []
+            'documents': [p.content for p in passages],
+            'metadatas': [p.metadata for p in passages],
+            'distances': [1.0 - p.score for p in passages],  # Convert score back to distance
+            'passages': passages  # Include full RetrievedPassage objects for new features
         }
 
     def generate_answer(self, context: str, question: str) -> str:
@@ -189,8 +140,6 @@ class RAGService:
         Returns:
             Generated answer string
         """
-        import requests
-
         system_prompt = (
             "You are a financial analyst assistant specializing in European banking reports.\n\n"
             "Your task:\n"
@@ -285,29 +234,34 @@ class RAGService:
             language_results = {}
             all_docs = []
             all_metas = []
+            all_passages = []
 
             for variant in expansion['variants']:
                 lang = variant['lang']
                 text = variant['text']
-                lang_results = self.retrieve(text, n_results=max(2, n_results // 3))
+                # Retrieve n_results per variant so dedup has enough candidates
+                lang_results = self.retrieve(text, n_results=n_results)
                 language_results[lang] = lang_results
 
-                # Collect all docs and metadata
+                # Collect all docs, metadata, and passage objects
                 all_docs.extend(lang_results['documents'])
                 all_metas.extend(lang_results['metadatas'])
+                all_passages.extend(lang_results['passages'])
 
             # Check numeric consistency
             consistency = self._bilingual_validator.check_numeric_consistency(language_results)
             print(f"Consistency check: {consistency['status']} (confidence: {consistency['confidence']:.2f})")
 
-            # Deduplicate and limit results
+            # Deduplicate and limit results, keeping passage objects in sync
             seen_texts = set()
             docs = []
             metas = []
-            for doc, meta in zip(all_docs, all_metas):
+            passages = []
+            for doc, meta, passage in zip(all_docs, all_metas, all_passages):
                 if doc not in seen_texts and len(docs) < n_results:
                     docs.append(doc)
                     metas.append(meta)
+                    passages.append(passage)
                     seen_texts.add(doc)
 
         else:
@@ -316,6 +270,7 @@ class RAGService:
             results = self.retrieve(question, n_results=n_results)
             docs = results['documents']
             metas = results['metadatas']
+            passages = results['passages']
 
         if not docs:
             return {
@@ -345,6 +300,8 @@ class RAGService:
         result = {
             'answer': answer,
             'sources': metas,
+            'documents': docs,
+            'passages': passages,
             'num_sources': len(docs)
         }
 
@@ -363,10 +320,4 @@ class RAGService:
             Dict with collection statistics
         """
         self._ensure_initialized()
-
-        count = self._collection.count()
-        return {
-            'name': self._collection.name,
-            'count': count,
-            'path': self.chroma_path
-        }
+        return self._retriever.collection_info()

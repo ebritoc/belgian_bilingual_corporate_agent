@@ -9,7 +9,13 @@
       "KBC_Group_NL.pdf"
     ],
     "num_facts": 20,
-    "created_by": "extracted from 2024 annual reports of BNP Paribas Fortis and KBC Group"
+    "created_by": "extracted from 2024 annual reports of BNP Paribas Fortis and KBC Group",
+    "difficulty_distribution": {
+      "easy": 6,
+      "medium": 8,
+      "hard": 4,
+      "adversarial": 2
+    }
   },
   "facts": [
     {
@@ -18,9 +24,11 @@
       "question_nl": "Wat is de transitionele Common Equity Tier 1-ratio van KBC Groep eind 2024?",
       "ground_truth": "13,9%",
       "source_bank": "KBC Group",
-      "source_page": 101,
+      "source_page_fr": 101,
+      "source_page_nl": 101,
       "source_language": "fr",
       "category": "capital_ratio",
+      "difficulty": "easy",
       "notes": "Ratio CET1 transitionnel du Groupe KBC au 31 décembre 2024"
     },
     {
@@ -29,10 +37,12 @@
       "question_nl": "Wat is de transitionele common equity ratio van KBC Bank eind 2024?",
       "ground_truth": "13,2%",
       "source_bank": "KBC Group",
-      "source_page": 344,
+      "source_page_fr": 344,
+      "source_page_nl": 344,
       "source_language": "fr",
       "category": "capital_ratio",
-      "notes": "Ratio CET1 de KBC Bank (entité bancaire), exigence minimale 11,1%"
+      "difficulty": "hard",
+      "notes": "Ratio CET1 de KBC Bank (entité bancaire, not group) - requires distinguishing bank from group"
     },
     {
       "id": 3,
@@ -40,9 +50,11 @@
       "question_nl": "Wat is het totaal van de activa van de geassocieerde deelnemingen van BNP Paribas Fortis op 31 december 2024?",
       "ground_truth": "38 040 millions EUR",
       "source_bank": "BNP Paribas Fortis",
-      "source_page": 116,
+      "source_page_fr": 116,
+      "source_page_nl": 116,
       "source_language": "nl",
       "category": "balance_sheet",
+      "difficulty": "medium",
       "notes": "Total actif des entreprises associées (2023: 35 911 millions EUR)"
     },
     {
@@ -51,9 +63,11 @@
       "question_nl": "Wat is het totale bedrag aan ontvangen commissies van BNP Paribas Fortis in 2024 (statutaire jaarrekening)?",
       "ground_truth": "1 559 millions EUR",
       "source_bank": "BNP Paribas Fortis",
-      "source_page": 202,
+      "source_page_fr": 202,
+      "source_page_nl": 202,
       "source_language": "fr",
       "category": "fee_income",
+      "difficulty": "medium",
       "notes": "Commissions perçues (statutaires), dont courtages 569M, gestion/conseil 412M, autres 578M"
     },
     {
@@ -62,10 +76,12 @@
       "question_nl": "Wat is het geconsolideerd nettoresultaat van KBC Groep over het boekjaar 2024?",
       "ground_truth": "3 415 millions EUR",
       "source_bank": "KBC Group",
-      "source_page": 44,
+      "source_page_fr": 44,
+      "source_page_nl": 44,
       "source_language": "en",
       "category": "profitability",
-      "notes": "Résultat net consolidé attribuable aux actionnaires"
+      "difficulty": "easy",
+      "notes": "Résultat net consolidé attribuable aux actionnaires - headline figure"
     },
     {
       "id": 6,
@@ -73,10 +89,12 @@
       "question_nl": "Wat is de te bestemmen winst van het boekjaar van BNP Paribas Fortis voor 2024 (niet-geconsolideerd)?",
       "ground_truth": "2 436,9 millions EUR",
       "source_bank": "BNP Paribas Fortis",
-      "source_page": 196,
+      "source_page_fr": 196,
+      "source_page_nl": 196,
       "source_language": "nl",
       "category": "profitability",
-      "notes": "Te bestemmen winst van het boekjaar (niet-geconsolideerd)"
+      "difficulty": "adversarial",
+      "notes": "Non-consolidated profit - easy to confuse with consolidated figures"
     },
     {
       "id": 7,
@@ -84,10 +102,12 @@
       "question_nl": "Hoeveel bedragen de nettorente-inkomsten van KBC Groep in 2024?",
       "ground_truth": "5 574 millions EUR",
       "source_bank": "KBC Group",
-      "source_page": 45,
+      "source_page_fr": 45,
+      "source_page_nl": 45,
       "source_language": "en",
       "category": "profitability",
-      "notes": "Nettorente-inkomsten, +2% par rapport à 2023 (+3% hors effet de change)"
+      "difficulty": "easy",
+      "notes": "Nettorente-inkomsten, +2% par rapport à 2023"
     },
     {
       "id": 8,
@@ -95,10 +115,12 @@
       "question_nl": "Wat is de kosten-inkomstenratio van KBC Groep (exclusief bank- en verzekeringsheffingen) in 2024?",
       "ground_truth": "43%",
       "source_bank": "KBC Group",
-      "source_page": 35,
+      "source_page_fr": 35,
+      "source_page_nl": 35,
       "source_language": "nl",
       "category": "profitability",
-      "notes": "Objectif KBC: < 42% en 2026. Résultat 2023: 43%"
+      "difficulty": "medium",
+      "notes": "Cost-income ratio excluding levies"
     },
     {
       "id": 9,
@@ -106,10 +128,12 @@
       "question_nl": "Hoeveel externe medewerkers (uitzendkrachten) heeft BNP Paribas Fortis eind 2024?",
       "ground_truth": "293",
       "source_bank": "BNP Paribas Fortis",
-      "source_page": 287,
+      "source_page_fr": 287,
+      "source_page_nl": 287,
       "source_language": "fr",
       "category": "workforce",
-      "notes": "Travailleurs externes en ETP à fin 2024"
+      "difficulty": "hard",
+      "notes": "External workers (temps) - specific subcategory of workforce"
     },
     {
       "id": 10,
@@ -117,10 +141,12 @@
       "question_nl": "Hoeveel bedragen de totale deposito's van de cliënteel van KBC Groep eind 2024?",
       "ground_truth": "216 227 millions EUR",
       "source_bank": "KBC Group",
-      "source_page": 298,
+      "source_page_fr": 298,
+      "source_page_nl": 298,
       "source_language": "fr",
       "category": "balance_sheet",
-      "notes": "Sous-total Dépôts de la clientèle (hors certificats de dépôt et obligations)"
+      "difficulty": "medium",
+      "notes": "Customer deposits subtotal"
     },
     {
       "id": 11,
@@ -128,10 +154,12 @@
       "question_nl": "Hoeveel PaxFamilia-contracten beheert BNP Paribas Fortis voor vermogensopvolging?",
       "ground_truth": "32 046",
       "source_bank": "BNP Paribas Fortis",
-      "source_page": 14,
+      "source_page_fr": 14,
+      "source_page_nl": 14,
       "source_language": "nl",
       "category": "digital",
-      "notes": "PaxFamilia: plateforme sécurisée de gestion et transmission de patrimoine"
+      "difficulty": "hard",
+      "notes": "PaxFamilia contracts - niche product metric"
     },
     {
       "id": 12,
@@ -139,10 +167,12 @@
       "question_nl": "Wat is het totaal gewogen risicovolume (fully loaded) van KBC Groep in 2024?",
       "ground_truth": "119 945 millions EUR",
       "source_bank": "KBC Group",
-      "source_page": 101,
+      "source_page_fr": 101,
+      "source_page_nl": 101,
       "source_language": "en",
       "category": "balance_sheet",
-      "notes": "Total weighted risk volume, fully loaded, 31-12-2024"
+      "difficulty": "medium",
+      "notes": "Total RWA fully loaded"
     },
     {
       "id": 13,
@@ -150,10 +180,12 @@
       "question_nl": "Hoeveel werknemers van BNP Paribas Fortis werken deeltijds in 2024?",
       "ground_truth": "4 376",
       "source_bank": "BNP Paribas Fortis",
-      "source_page": 286,
+      "source_page_fr": 286,
+      "source_page_nl": 286,
       "source_language": "nl",
       "category": "workforce",
-      "notes": "12% du personeelsbestand, dont 844 hommes et 3 532 femmes"
+      "difficulty": "medium",
+      "notes": "Part-time employees - specific breakdown"
     },
     {
       "id": 14,
@@ -161,10 +193,12 @@
       "question_nl": "Hoeveel werknemers telt BNP Paribas Fortis op 31 december 2024?",
       "ground_truth": "35 778",
       "source_bank": "BNP Paribas Fortis",
-      "source_page": 286,
+      "source_page_fr": 286,
+      "source_page_nl": 286,
       "source_language": "nl",
       "category": "workforce",
-      "notes": "Nombre de salariés en personnes physiques, dont 16 802 hommes et 18 976 femmes"
+      "difficulty": "easy",
+      "notes": "Total headcount - prominent figure"
     },
     {
       "id": 15,
@@ -172,10 +206,12 @@
       "question_nl": "Hoeveel voltijdse equivalenten (VTE) telt KBC Groep gemiddeld in 2024?",
       "ground_truth": "38 074",
       "source_bank": "KBC Group",
-      "source_page": 288,
+      "source_page_fr": 288,
+      "source_page_nl": 288,
       "source_language": "en",
       "category": "workforce",
-      "notes": "Nombre moyen d'ETP en 2024"
+      "difficulty": "easy",
+      "notes": "Average FTE count"
     },
     {
       "id": 16,
@@ -183,10 +219,12 @@
       "question_nl": "Hoeveel bankkantoren exploiteert KBC Groep op 31 december 2024?",
       "ground_truth": "1 106",
       "source_bank": "KBC Group",
-      "source_page": 2,
+      "source_page_fr": 2,
+      "source_page_nl": 2,
       "source_language": "fr",
       "category": "workforce",
-      "notes": "Agences bancaires sur l'ensemble des marchés stratégiques, environ 13 millions de clients"
+      "difficulty": "easy",
+      "notes": "Bank branches - key facts page"
     },
     {
       "id": 17,
@@ -194,10 +232,12 @@
       "question_nl": "Welk totaal dividend per aandeel stelt KBC Groep voor over het boekjaar 2024?",
       "ground_truth": "4,85 EUR par action",
       "source_bank": "KBC Group",
-      "source_page": 358,
+      "source_page_fr": 358,
+      "source_page_nl": 358,
       "source_language": "fr",
       "category": "dividend",
-      "notes": "Dont 1,00 EUR et 0,70 EUR déjà payés en 2024 (intérimaire et exceptionnel). Payout ratio 51%"
+      "difficulty": "medium",
+      "notes": "Total dividend per share including interim"
     },
     {
       "id": 18,
@@ -205,10 +245,12 @@
       "question_nl": "Hoeveel bedragen de nettoprovisie-inkomsten van KBC Groep in 2024?",
       "ground_truth": "2 578 millions EUR",
       "source_bank": "KBC Group",
-      "source_page": 284,
+      "source_page_fr": 284,
+      "source_page_nl": 284,
       "source_language": "en",
       "category": "fee_income",
-      "notes": "Net fee and commission income, vs 2 349 millions EUR en 2023 (+10%)"
+      "difficulty": "medium",
+      "notes": "Net fee and commission income"
     },
     {
       "id": 19,
@@ -216,10 +258,12 @@
       "question_nl": "Hoeveel actieve gebruikers telt het Easy Banking-platform van BNP Paribas Fortis (inclusief Fintro)?",
       "ground_truth": "3,25 millions",
       "source_bank": "BNP Paribas Fortis",
-      "source_page": 14,
+      "source_page_fr": 14,
+      "source_page_nl": 14,
       "source_language": "nl",
       "category": "digital",
-      "notes": "Easy Banking Web + Easy Banking App, incluant Fintro"
+      "difficulty": "hard",
+      "notes": "Easy Banking users including Fintro subsidiary"
     },
     {
       "id": 20,
@@ -227,10 +271,12 @@
       "question_nl": "Wat is de liquiditeitsdekkingsratio (LCR) van KBC Groep in 2024?",
       "ground_truth": "158%",
       "source_bank": "KBC Group",
-      "source_page": 362,
+      "source_page_fr": 362,
+      "source_page_nl": 362,
       "source_language": "fr",
       "category": "liquidity",
-      "notes": "Moyenne des 12 clôtures mensuelles. Actifs liquides: 100 631M / Sorties nettes: 63 588M"
+      "difficulty": "adversarial",
+      "notes": "LCR is an average of 12 monthly closings - not year-end figure"
     }
   ]
 }

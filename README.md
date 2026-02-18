@@ -1,31 +1,24 @@
-# Belgian Bilingual Corporate Agent
+# CrossGuard: Belgian Bilingual Corporate Agent
 
-A RAG (Retrieval-Augmented Generation) system for analyzing Belgian banking reports with bilingual validation capabilities.
+A RAG system for analyzing Belgian banking reports with **crosslingual consistency guardrails**. It retrieves information from French, Dutch, and English annual reports, cross-validates across languages, and flags discrepancies using token-level explanations.
 
 ## What Makes This Different
 
 Belgian banks publish annual reports in both French and Dutch (and sometimes English). This system:
+
 1. **Retrieves information** from multiple language versions simultaneously
-2. **Cross-validates numeric data** for consistency across languages
-3. **Flags discrepancies** when French and Dutch reports contain different figures
-4. **Uses multilingual embeddings** to enable cross-language queries
-
-## Features
-
-- **Web UI**: User-friendly Gradio chat interface
-- **PDF Ingestion**: Automatically chunks and indexes banking reports
-- **Semantic Search**: Find relevant passages using multilingual vector embeddings
-- **Local LLM Integration**: Generate answers using Ollama (privacy-first)
-- **Bilingual Validation**: Cross-reference information across language versions
-- **Tested**: Integration tests with real Q&A pairs from actual reports
+2. **Swappable retrieval backends** -- ChromaDB (dense) or ColBERT (late interaction) via a shared Retriever protocol
+3. **Cross-validates numeric data** for consistency across languages using MaxSimE token alignment
+4. **Flags discrepancies** when French and Dutch reports contain different figures
+5. **Explains results** with token-level heatmaps showing which terms matched across languages
 
 ## Quick Start
 
 ### Prerequisites
 
-- Python 3.9+
-- [Ollama](https://ollama.ai/) running locally
-- At least 8GB RAM (for qwen2.5:7b model)
+- Python 3.10+
+- [Ollama](https://ollama.ai/) running locally (for LLM generation; optional for retrieval-only mode)
+- At least 8GB RAM
 
 ### Installation
 
@@ -34,270 +27,246 @@ Belgian banks publish annual reports in both French and Dutch (and sometimes Eng
 git clone <repository-url>
 cd belgian_bilingual_corporate_agent
 
-# Create virtual environment (recommended)
+# Create virtual environment
 python -m venv .venv
-.venv\Scripts\activate  # Windows
-# or: source .venv/bin/activate  # Linux/Mac
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # Linux/Mac
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Start Ollama (in separate terminal)
+# Pull the LLM model (optional -- only needed for answer generation)
 ollama pull qwen2.5:7b
-ollama serve
 ```
 
-### Running the Web UI
+### Index the Corpus
+
+Before querying, you need to index the PDF reports. Place your PDFs in `data/fetched_reports/` using the naming convention `BankName_Language.pdf` (e.g. `KBC_Group_FR.pdf`).
+
+```bash
+# Index with ChromaDB (default, faster)
+python scripts/index_corpus.py
+
+# Index with ColBERT (late interaction, better ranking)
+python scripts/index_corpus.py --retriever colbert
+```
+
+You can also change the default retriever in `config.yaml`:
+
+```yaml
+retriever:
+  type: "chroma"   # or "colbert"
+```
+
+### Launch the Web UI
 
 ```bash
 python app.py
 ```
 
-This will start a Gradio web interface. Open your browser to the URL shown (usually http://localhost:7860).
+Open `http://localhost:7860` in your browser. The interface provides:
 
-**Performance Note**: The first query may take 30-60 seconds as the embedding model loads. Subsequent queries with LLM generation typically take 10-30 seconds depending on your hardware. For faster testing, use the "Retrieval Only" option which skips LLM generation.
+- **Chat**: Ask questions about the banking reports in French, Dutch, or English
+- **Settings**: Toggle bilingual validation, adjust result count, enable retrieval-only mode
+- **Sources**: Expandable cards showing each retrieved passage with bank, page, and language
+- **Token Alignment**: Consistency visualization when bilingual mode is enabled
 
 ### Command-Line Usage
 
 ```bash
-# 1. Index documents (one-time setup, if not already done)
-python scripts/rag_cli.py index
-
-# 2. Ask questions
+# Ask a question (with LLM answer generation)
 python scripts/rag_cli.py query "What is KBC's capital ratio?"
 
-# 3. Enable bilingual validation
-python scripts/rag_cli.py query "Quel est le ratio de capital?" --bilingual-check
-
-# 4. Retrieve without LLM (faster, for testing)
+# Retrieval only (no LLM, faster)
 python scripts/rag_cli.py query "What is the net profit?" --no-llm
 
-# 5. Check collection info
+# Bilingual consistency check
+python scripts/rag_cli.py query "Quel est le ratio de capital?" --bilingual-check
+
+# Re-index documents
+python scripts/rag_cli.py index
+
+# Check collection info
 python scripts/rag_cli.py info
 ```
 
-## Web UI Features
-
-The Gradio interface provides:
-
-- **Chat Interface**: Conversational Q&A with the banking reports
-- **Settings Panel**:
-  - Enable/disable bilingual validation
-  - Adjust number of sources retrieved (1-10)
-  - Retrieval-only mode (skip LLM for faster results)
-- **Response Metadata**: Shows detected language and consistency status when bilingual mode is enabled
-- **Retrieved Sources**: Expandable cards showing source documents with bank name, page number, and language
-
-## Architecture
-
-### Simple and Transparent
-
-```
-belgian_bilingual_corporate_agent/
-├── app.py                          # Gradio web UI
-├── src/
-│   ├── rag_service.py              # Main RAG implementation (~360 lines)
-│   ├── bilingual_validator.py      # Cross-language validation (~230 lines)
-│   └── utils/
-│       └── pdf_parser.py           # PDF chunking (~110 lines)
-├── scripts/
-│   ├── rag_cli.py                  # Command-line interface
-│   └── fetch_and_save_reports.py   # Download PDFs
-├── tests/
-│   ├── eval_benchmark.json         # Bilingual evaluation benchmark (20 facts)
-│   └── integration/
-│       ├── test_end_to_end.py      # Integration tests
-│       └── test_cases.py           # Real Q&A pairs
-├── data/
-│   └── fetched_reports/            # PDF storage
-├── banking_db_v2/                  # ChromaDB persistent store
-└── requirements.txt
-```
-
-**Total core code**: ~700 lines
-
-### Components
-
-1. **RAGService**: Single-file RAG implementation
-   - Document indexing using ChromaDB
-   - Vector search with SentenceTransformer embeddings
-   - LLM generation via Ollama
-   - Optional bilingual validation
-
-2. **BilingualValidator**: Language handling
-   - Language detection using `langdetect`
-   - Domain-specific term translation
-   - Numeric consistency checking
-
-3. **PDF Parser**: Simple text extraction
-   - PyPDF-based extraction
-   - Sentence-boundary chunking
-   - Metadata preservation
-
-### Technology Stack
-
-- **Web UI**: [Gradio](https://gradio.app/) - Modern web interface
-- **Vector Store**: [ChromaDB](https://www.trychroma.com/) - Persistent vector database
-- **Embeddings**: [SentenceTransformers](https://www.sbert.net/) - `paraphrase-multilingual-mpnet-base-v2`
-- **LLM**: [Ollama](https://ollama.ai/) - Local model inference (qwen2.5:7b)
-- **PDF Parsing**: [pypdf](https://pypdf.readthedocs.io/) - Pure Python PDF reader
-
-## Performance Expectations
-
-| Operation | Time | Notes |
-|-----------|------|-------|
-| First query (cold start) | 30-60s | Embedding model loading |
-| Retrieval only | 1-2s | Vector search |
-| LLM generation | 10-30s | Depends on hardware and context length |
-| Indexing | ~2 min | For ~10,000 chunks |
-
-**Hardware Requirements**:
-- ~2GB RAM for embeddings
-- ~4GB RAM for LLM (qwen2.5:7b)
-- SSD recommended for faster model loading
-
 ## Testing
 
-### Run Integration Tests
+### Integration Tests
 
 ```bash
 # All tests (requires Ollama running)
 pytest tests/integration/test_end_to_end.py -v
 
-# Only retrieval tests (faster, no LLM)
+# Retrieval-only tests (faster, no LLM needed)
 pytest tests/integration/test_end_to_end.py::TestRetrievalOnly -v
 
 # Setup verification
 pytest tests/integration/test_end_to_end.py::TestSetup -v
 ```
 
-### Test Results
+### Consistency Tests
 
-Based on KBC Group and BNP Paribas Fortis 2024 annual reports:
-
-- 18/21 tests passing (86%)
-- All retrieval tests passing
-- LLM generation working
-- Bilingual consistency validation working
-- Source attribution accurate
-
-### Bilingual Evaluation Benchmark
-
-The file `tests/eval_benchmark.json` contains 20 atomic facts extracted from the annual reports, each with a bilingual question pair (French + Dutch) and a verified ground-truth answer. This benchmark is designed for systematic evaluation of the RAG system's accuracy and cross-language retrieval quality.
-
-**Coverage:**
-- **12 KBC Group** and **8 BNP Paribas Fortis** facts
-- **8 categories**: capital ratios, profitability, balance sheet, workforce, fee income, digital, dividends, liquidity
-- Questions use **Belgian corporate language** nuances (e.g. FR: "exercice", "effectifs", "fonds propres"; NL: "boekjaar", "personeelsbestand", "eigen vermogen")
-
-**Each fact contains:**
-- `question_fr` / `question_nl`: Natural language questions in French and Dutch
-- `ground_truth`: The verified answer (specific number, percentage, or amount)
-- `source_bank`, `source_page`, `source_language`: Exact provenance in the PDF
-- `category` and `notes`: Classification and additional context
-
-**Example:**
-```json
-{
-  "id": 1,
-  "question_fr": "Quel est le ratio Common Equity Tier 1 transitionnel du Groupe KBC fin 2024 ?",
-  "question_nl": "Wat is de transitionele Common Equity Tier 1-ratio van KBC Groep eind 2024?",
-  "ground_truth": "13,9%",
-  "source_bank": "KBC Group",
-  "source_page": 101,
-  "category": "capital_ratio"
-}
+```bash
+pytest tests/test_consistency.py -v
 ```
 
-This benchmark can be used to measure retrieval recall, answer accuracy, and bilingual consistency across model or configuration changes.
+## Evaluation
+
+The project includes a benchmark of 20 bilingual facts and scripts to measure retrieval performance.
+
+### Run Evaluation
+
+```bash
+# Evaluate with ChromaDB (default retriever)
+python scripts/run_evaluation.py --no-llm
+
+# Evaluate with ColBERT
+python scripts/run_evaluation.py --retriever colbert --no-llm
+
+# Custom output directory
+python scripts/run_evaluation.py --retriever colbert --no-llm --output-dir results_colbert
+
+# Evaluate a subset of facts
+python scripts/run_evaluation.py --facts 10 --no-llm
+```
+
+Results are saved to `results/results.json` and `results/summary.md` (or the directory specified by `--output-dir`).
+
+### Validate the Benchmark
+
+```bash
+python scripts/validate_benchmark.py
+```
+
+This checks the structure, field completeness, and distribution of `tests/eval_benchmark.json`.
+
+### Benchmark Details
+
+`tests/eval_benchmark.json` contains 20 atomic facts from KBC Group (12) and BNP Paribas Fortis (8) annual reports. Each fact includes:
+
+- `question_fr` / `question_nl`: Natural questions in French and Dutch
+- `ground_truth`: Verified answer (number, percentage, or amount)
+- `source_bank`, `source_page_fr`, `source_page_nl`: Exact provenance
+- `category`: One of capital_ratio, profitability, balance_sheet, workforce, fee_income, digital, dividend, liquidity
+- `difficulty`: easy, medium, hard, or adversarial
+
+### Current Retrieval Results
+
+| Metric | ChromaDB | ColBERT |
+|--------|----------|---------|
+| Recall@5 (FR) | 20.0% | 15.0% |
+| Recall@5 (NL) | 15.0% | 10.0% |
+| MRR (FR) | 0.108 | 0.125 |
+| MRR (NL) | 0.058 | 0.075 |
+
+ChromaDB retrieves more relevant documents overall; ColBERT ranks hits higher when it finds them. See `results/comparison_report.md` for the full analysis.
+
+## Architecture
+
+```
+belgian_bilingual_corporate_agent/
+├── app.py                          # Gradio web UI
+├── config.yaml                     # Central configuration
+├── src/
+│   ├── retriever.py                # Retriever protocol + ChromaRetriever
+│   ├── colbert_retriever.py        # ColBERT retriever (FAISS + MaxSim)
+│   ├── rag_service.py              # Main RAG service
+│   ├── bilingual_validator.py      # Cross-language validation
+│   ├── consistency.py              # MaxSimE-based consistency scoring
+│   ├── visualization.py            # Gradio visualization helpers
+│   └── utils/
+│       └── pdf_parser.py           # PDF chunking
+├── scripts/
+│   ├── rag_cli.py                  # Command-line interface
+│   ├── index_corpus.py             # Corpus indexing (ChromaDB or ColBERT)
+│   ├── run_evaluation.py           # Evaluation pipeline
+│   └── validate_benchmark.py       # Benchmark structure checker
+├── tests/
+│   ├── eval_benchmark.json         # 20-fact bilingual benchmark
+│   ├── test_consistency.py         # Consistency scorer tests
+│   └── integration/
+│       ├── test_end_to_end.py      # Integration tests
+│       └── test_cases.py           # Q&A test pairs
+├── data/
+│   └── fetched_reports/            # PDF storage (BankName_Language.pdf)
+├── banking_db_v2/                  # ChromaDB persistent store
+├── colbert_index/                  # ColBERT/FAISS index
+├── results/                        # Evaluation output
+└── requirements.txt
+```
+
+### Components
+
+1. **Retriever Protocol** (`src/retriever.py`): Abstract interface allowing backend swaps between ChromaDB and ColBERT without changing application code.
+
+2. **ChromaRetriever**: Dense retrieval using `paraphrase-multilingual-mpnet-base-v2` embeddings stored in ChromaDB.
+
+3. **ColBERTRetriever** (`src/colbert_retriever.py`): Late interaction retrieval using `answerdotai/answerai-colbert-small-v1`. Mean-pooled embeddings are indexed in FAISS for candidate retrieval, then re-ranked with full MaxSim scoring. Returns per-token embeddings for MaxSimE explanations.
+
+4. **RAGService** (`src/rag_service.py`): Orchestrates retrieval, bilingual validation, and LLM answer generation via Ollama.
+
+5. **ConsistencyScorer** (`src/consistency.py`): Compares FR/NL token alignments via MaxSimE to detect retrieval inconsistencies. Scoring formula: `0.6 * alignment_overlap + 0.4 * (1 - score_divergence)`.
+
+6. **BilingualValidator** (`src/bilingual_validator.py`): Language detection, domain-specific term translation, numeric consistency checking, and token alignment consistency.
+
+### Technology Stack
+
+| Component | Tool |
+|-----------|------|
+| Web UI | [Gradio](https://gradio.app/) |
+| Dense retrieval | [ChromaDB](https://www.trychroma.com/) + [SentenceTransformers](https://www.sbert.net/) |
+| Late interaction | [ColBERT](https://github.com/stanford-futuredata/ColBERT) + [FAISS](https://github.com/facebookresearch/faiss) |
+| Explainability | [MaxSimE](https://github.com/ebritoc/MaxSimE) |
+| LLM | [Ollama](https://ollama.ai/) (qwen2.5:7b) |
+| PDF parsing | [pypdf](https://pypdf.readthedocs.io/) |
+| Config | YAML (`config.yaml`) |
+
+## Configuration
+
+All settings are in `config.yaml`. Defaults work out of the box.
+
+```yaml
+retriever:
+  type: "chroma"                    # "chroma" or "colbert"
+  chroma_path: "./banking_db_v2"
+  embedding_model: "paraphrase-multilingual-mpnet-base-v2"
+  colbert_model: "answerdotai/answerai-colbert-small-v1"
+
+llm:
+  ollama_url: "http://localhost:11434"
+  model_name: "qwen2.5:7b"
+
+bilingual:
+  enabled: true
+  consistency_threshold: 0.5
+
+chunking:
+  chunk_size: 1000
+  chunk_overlap: 100
+```
 
 ## Data Sources
 
 Currently supports:
-- **BNP Paribas Fortis** (French & Dutch versions)
-- **KBC Group** (French, Dutch & English versions)
+- **BNP Paribas Fortis** -- French and Dutch annual report (2024)
+- **KBC Group** -- French, Dutch, and English annual report (2024)
 
-Reports are 2024 annual reports downloaded via `scripts/fetch_and_save_reports.py`.
-
-## Configuration
-
-All configuration is optional. Defaults work out of the box.
-
-```python
-from rag_service import RAGService
-
-# Custom configuration
-config = {
-    'chroma_path': './my_custom_db',
-    'embedding_model': 'paraphrase-multilingual-mpnet-base-v2',
-    'ollama_url': 'http://localhost:11434',
-    'model_name': 'qwen2.5:7b',
-    'ollama_timeout': 180
-}
-
-rag = RAGService(config)
-```
-
-## CLI Flags
-
-```bash
-python scripts/rag_cli.py query <question> [OPTIONS]
-```
-
-- `--ollama-url URL` - Custom Ollama endpoint (default: `http://localhost:11434`)
-- `--model MODEL` - Override the LLM model (default: `qwen2.5:7b`)
-- `--timeout SECONDS` - Timeout for LLM requests (default: `30`)
-- `--no-llm` - Disable LLM, return only retrieved passages
-- `--n-results N` - Number of passages to retrieve (default: `5`)
-- `--bilingual-check` - Enable bilingual consistency checking
+Reports are stored in `data/fetched_reports/` as PDFs.
 
 ## Troubleshooting
 
-**Ollama not reachable:**
-- Ensure Ollama is running (`ollama serve` on terminal or start the app on Windows)
-- Verify the endpoint: `curl http://localhost:11434/api/tags`
+**Ollama not reachable**: Ensure Ollama is running (`ollama serve`) and verify with `curl http://localhost:11434/api/tags`.
 
-**Slow responses:**
-- First query takes longer due to model loading
-- Use `--no-llm` or "Retrieval Only" mode for faster testing
-- Increase `--timeout` if your hardware is slower
+**No results retrieved**: Check that PDFs are in `data/fetched_reports/`, run `python scripts/index_corpus.py`, and verify with `python scripts/rag_cli.py info`.
 
-**No results retrieved:**
-- Check that PDFs are in `data/fetched_reports/`
-- Run indexing: `python scripts/rag_cli.py index`
-- Verify with: `python scripts/rag_cli.py info`
+**Slow first query**: The embedding model loads on first use. Use `--no-llm` or retrieval-only mode in the UI for faster testing.
 
-**Port already in use (Gradio):**
-- The app will automatically find an available port
-- Or manually specify: `GRADIO_SERVER_PORT=7861 python app.py`
-
-## TODO
-
-- [ ] Add visualization of retrieved chunks in the Gradio app (show highlighted text passages)
-- [ ] Add more banks (ING, Belfius, Argenta)
-- [ ] Implement proper BM25 hybrid search
-- [ ] Support for multi-year comparisons
-- [ ] Export to structured data (JSON, CSV)
-- [ ] Add streaming responses for better UX
-
-## Contributing
-
-This project demonstrates aggressive simplification in RAG systems. The codebase was reduced from ~1,500 lines with complex agent abstractions to ~700 lines with clear, maintainable code.
-
-**Philosophy**:
-- Prefer standard libraries over custom implementations
-- Keep abstractions minimal and purposeful
-- Every line of code should have a clear reason to exist
+**ColBERT indexing slow**: ColBERT encodes ~10k chunks in ~20 min on CPU. Use a GPU-enabled machine for faster indexing, or stick with ChromaDB for development.
 
 ## License
 
 [Add your license here]
-
-## Acknowledgments
-
-- Built on [Gradio](https://gradio.app/), [ChromaDB](https://www.trychroma.com/), [Ollama](https://ollama.ai/), and [SentenceTransformers](https://www.sbert.net/)
-- Inspired by the need for transparent, maintainable RAG systems
-- Test data from public annual reports of Belgian banks
 
 ---
 
